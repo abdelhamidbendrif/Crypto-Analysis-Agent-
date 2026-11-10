@@ -254,7 +254,7 @@ class GroundedReportTests(unittest.TestCase):
         response.json.return_value = market_payload()
 
         with (patch.object(app, "llm_with_tools", model),
-              patch.object(app.requests, "get", return_value=response) as request):
+              patch("crypto_agent.tools.requests.get", return_value=response) as request):
             result = app.react_graph.invoke({"messages": [HumanMessage(content="Fetch BTC.")]})
 
         self.assertEqual(model.invoke.call_count, 2)
@@ -287,7 +287,7 @@ class GroundedReportTests(unittest.TestCase):
         config = {"configurable": {"thread_id": f"offline-{uuid4()}"}}
 
         with (patch.object(app, "llm_with_tools", model),
-              patch.object(app.requests, "get", side_effect=[btc_response, eth_response])):
+              patch("crypto_agent.tools.requests.get", side_effect=[btc_response, eth_response])):
             app.react_graph_with_memory.invoke(
                 {"messages": [HumanMessage(content="Fetch BTC.")]}, config)
             result = app.react_graph_with_memory.invoke(
