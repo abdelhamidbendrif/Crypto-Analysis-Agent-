@@ -3,7 +3,7 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from app import react_graph_with_memory
+from crypto_agent.graph import react_graph_with_memory
 
 
 if __name__ == "__main__":

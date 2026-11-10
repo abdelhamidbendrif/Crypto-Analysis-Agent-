@@ -19,7 +19,8 @@ with (
     patch("dotenv.load_dotenv", return_value=False),
     patch("httpx.Client.send", side_effect=AssertionError("Unexpected network request")),
 ):
-    import app
+    from crypto_agent import graph as agent_graph
+    from crypto_agent.reporting import build_grounded_report
 
 
 def market_payload(symbol="BTC", price="76062.01"):
@@ -92,7 +93,7 @@ class GroundedReportTests(unittest.TestCase):
         self.addCleanup(self.httpx_guard.stop)
 
     def test_market_report_preserves_values_without_invented_metadata(self):
-        report = app.build_grounded_report(tool_turn(
+        report = build_grounded_report(tool_turn(
             "crypto_data_tool", market_payload(), {"symbol": "BTC"},
         ))
 
@@ -111,7 +112,7 @@ class GroundedReportTests(unittest.TestCase):
         self.assertIn("not specified", report.lower())
 
     def test_coin_list_keeps_missing_names_missing(self):
-        report = app.build_grounded_report(tool_turn(
+        report = build_grounded_report(tool_turn(
             "crypto_list_tool",
             {"status": True, "coins": [
                 {"symbol": "BTC", "name": ""},
@@ -126,7 +127,7 @@ class GroundedReportTests(unittest.TestCase):
         self.assertNotIn("Ethereum", report)
 
     def test_news_report_preserves_article_attribution(self):
-        report = app.build_grounded_report(tool_turn(
+        report = build_grounded_report(tool_turn(
             "crypto_news_tool", article_payload(),
             {"query": "ethereum", "max_items": 1},
         ))
@@ -154,7 +155,7 @@ class GroundedReportTests(unittest.TestCase):
             for index, (name, _, payload) in enumerate(specifications)
         )
 
-        report = app.build_grounded_report(messages)
+        report = build_grounded_report(messages)
 
         for value in ("BTC", "ETH", "76062.01", "3000.00",
                       "Bitcoin source article", "Ethereum update",
@@ -163,7 +164,7 @@ class GroundedReportTests(unittest.TestCase):
         self.assertNotIn("$", report)
 
     def test_api_error_is_reported_instead_of_fabricated_data(self):
-        report = app.build_grounded_report(tool_turn(
+        report = build_grounded_report(tool_turn(
             "crypto_data_tool", {"status": False, "error": "DNS unavailable"},
             {"symbol": "BTC"},
         ))
@@ -172,7 +173,7 @@ class GroundedReportTests(unittest.TestCase):
         self.assertNotIn("76062.01", report)
 
     def test_malformed_tool_json_is_reported(self):
-        report = app.build_grounded_report(tool_turn(
+        report = build_grounded_report(tool_turn(
             "crypto_data_tool", "not valid JSON", {"symbol": "BTC"},
         ))
 
@@ -186,14 +187,14 @@ class GroundedReportTests(unittest.TestCase):
             ("crypto_news_tool", "articles"),
         ):
             with self.subTest(tool=name):
-                report = app.build_grounded_report(tool_turn(
+                report = build_grounded_report(tool_turn(
                     name, {"status": "ok", field: [None, {}]},
                 ))
                 self.assertIn("Data unavailable", report)
 
         payload = article_payload()
         payload["articles"].append(None)
-        report = app.build_grounded_report(tool_turn("crypto_news_tool", payload))
+        report = build_grounded_report(tool_turn("crypto_news_tool", payload))
         self.assertIn("Articles returned: 1", report)
         self.assertNotIn("Articles returned: 2", report)
 
@@ -202,11 +203,11 @@ class GroundedReportTests(unittest.TestCase):
         history.append(AIMessage(content="Previous answer."))
         history.append(HumanMessage(content="Hello."))
 
-        self.assertIsNone(app.build_grounded_report(history))
+        self.assertIsNone(build_grounded_report(history))
 
         new_turn = tool_turn("crypto_news_tool", article_payload(),
                              {"query": "ethereum"}, call_id="new-call")
-        report = app.build_grounded_report(history + new_turn)
+        report = build_grounded_report(history + new_turn)
         self.assertIn("Ethereum update", report)
         self.assertNotIn("76062.01", report)
 
@@ -217,8 +218,8 @@ class GroundedReportTests(unittest.TestCase):
         model = Mock()
         model.invoke.return_value = fabricated
 
-        with patch.object(app, "llm_with_tools", model):
-            result = app.assistant({"messages": messages})
+        with patch.object(agent_graph, "llm_with_tools", model):
+            result = agent_graph.assistant({"messages": messages})
 
         final = result["messages"][0]
         self.assertIsInstance(final, AIMessage)
@@ -226,7 +227,7 @@ class GroundedReportTests(unittest.TestCase):
         self.assertNotIn("$", final.content)
         self.assertNotIn("UTC", final.content)
         self.assertIn("76062.01", final.content)
-        self.assertIs(model.invoke.call_args.args[0][0], app.system_message)
+        self.assertIs(model.invoke.call_args.args[0][0], agent_graph.system_message)
 
     def test_assistant_preserves_tool_call_requests(self):
         requested = AIMessage(content="", tool_calls=[{
@@ -236,8 +237,8 @@ class GroundedReportTests(unittest.TestCase):
         model = Mock()
         model.invoke.return_value = requested
 
-        with patch.object(app, "llm_with_tools", model):
-            result = app.assistant({"messages": [HumanMessage(content="Fetch BTC.")]})
+        with patch.object(agent_graph, "llm_with_tools", model):
+            result = agent_graph.assistant({"messages": [HumanMessage(content="Fetch BTC.")]})
 
         self.assertIs(result["messages"][0], requested)
 
@@ -253,9 +254,9 @@ class GroundedReportTests(unittest.TestCase):
         response = Mock()
         response.json.return_value = market_payload()
 
-        with (patch.object(app, "llm_with_tools", model),
+        with (patch.object(agent_graph, "llm_with_tools", model),
               patch("crypto_agent.tools.requests.get", return_value=response) as request):
-            result = app.react_graph.invoke({"messages": [HumanMessage(content="Fetch BTC.")]})
+            result = agent_graph.react_graph.invoke({"messages": [HumanMessage(content="Fetch BTC.")]})
 
         self.assertEqual(model.invoke.call_count, 2)
         self.assertEqual(request.call_count, 1)
@@ -286,11 +287,11 @@ class GroundedReportTests(unittest.TestCase):
         eth_response.json.return_value = market_payload("ETH", "3000.00")
         config = {"configurable": {"thread_id": f"offline-{uuid4()}"}}
 
-        with (patch.object(app, "llm_with_tools", model),
+        with (patch.object(agent_graph, "llm_with_tools", model),
               patch("crypto_agent.tools.requests.get", side_effect=[btc_response, eth_response])):
-            app.react_graph_with_memory.invoke(
+            agent_graph.react_graph_with_memory.invoke(
                 {"messages": [HumanMessage(content="Fetch BTC.")]}, config)
-            result = app.react_graph_with_memory.invoke(
+            result = agent_graph.react_graph_with_memory.invoke(
                 {"messages": [HumanMessage(content="Fetch ETH.")]}, config)
 
         final = result["messages"][-1].content
