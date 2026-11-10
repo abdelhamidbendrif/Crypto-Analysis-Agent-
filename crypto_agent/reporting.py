@@ -64,6 +64,14 @@ def build_grounded_report(messages: list[BaseMessage]) -> str | None:
             continue
 
         lines = [f"### {title}"]
+        if isinstance(data.get("provider"), str):
+            lines.append(f"Data provider: {_report_cell(data['provider'])}")
+        if isinstance(data.get("fetched_at"), str):
+            lines.append(f"Retrieved at: {_report_cell(data['fetched_at'])}")
+        if isinstance(data.get("warnings"), list):
+            for warning in data["warnings"]:
+                if isinstance(warning, str):
+                    lines.append(f"- Data quality note: {_report_cell(warning)}")
         if name == "crypto_list_tool" and isinstance(data.get("coins"), list):
             coins = [coin for coin in data["coins"] if isinstance(coin, dict) and coin.get("symbol")]
             if data["coins"] and not coins:
