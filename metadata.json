@@ -1,0 +1,8 @@
+{
+  "name": "Crypto Research AI",
+  "description": "A source-aware crypto research workspace. Ask, compare and explore with your AI analyst.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
