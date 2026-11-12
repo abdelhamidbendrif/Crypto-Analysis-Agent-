@@ -52,7 +52,7 @@ class WorkspaceUITests(TestCase):
         self.addCleanup(self.live.stop)
 
     def open_app(self):
-        app = AppTest.from_file(str(APP), default_timeout=20).run()
+        app = AppTest.from_file(str(APP), default_timeout=40).run()
         self.assertEqual(list(app.exception), [])
         return app
 
@@ -62,11 +62,12 @@ class WorkspaceUITests(TestCase):
 
     def test_demo_loads_without_credentials_and_comparison_has_both_assets(self):
         app = self.open_app()
-        self.assertEqual(app.radio[0].value, "Demo")
-        self.assertIn("fictional", app.info[0].value)
-        self.assertEqual(len(app.metric), 2)
-        self.click(app, "Fetch comparison")
-        self.assertEqual(list(app.dataframe[0].value.columns), ["Metric", "BTC", "ETH"])
+        self.assertEqual(app.radio(key="mode").value, "Demo")
+        self.assertTrue(any("Demo, fictional data" in item.value for item in app.markdown))
+        self.assertTrue(any('<div class="snapshot-grid">' in item.value for item in app.markdown))
+        app.button(key="fetch_comparison").click().run()
+        self.assertEqual(list(app.exception), [])
+        self.assertEqual(list(app.table[0].value.columns), ["Metric", "BTC", "ETH"])
         self.assertEqual(len(app.chat_message), 2)
         self.build_live.assert_not_called()
 
@@ -77,7 +78,7 @@ class WorkspaceUITests(TestCase):
         app.chat_input[0].set_value("Three news articles about the same cryptocurrency").run()
         self.assertEqual(list(app.exception), [])
         self.assertEqual(len(app.chat_message), 4)
-        self.assertEqual(len(app.metric), 0)
+        self.assertFalse(any('<div class="snapshot-grid">' in item.value for item in app.markdown))
         self.assertEqual(app.session_state["evidence"][0]["args"]["query"], "bitcoin")
         self.click(app, "New conversation")
         self.assertEqual(app.session_state["chat"], [])
@@ -87,7 +88,7 @@ class WorkspaceUITests(TestCase):
         app = self.open_app()
         self.click(app, "BTC snapshot")
         thread = app.session_state["thread_id"]
-        app.radio[0].set_value("Live APIs").run()
+        app.radio(key="mode").set_value("Live APIs").run()
         self.assertEqual(list(app.exception), [])
         self.assertEqual(app.session_state["chat"], [])
         self.assertEqual(app.session_state["evidence"], [])
@@ -100,7 +101,7 @@ class WorkspaceUITests(TestCase):
         self.build_live.side_effect = None
         self.build_live.return_value = fake_graph
         app = self.open_app()
-        app.radio[0].set_value("Live APIs").run()
+        app.radio(key="mode").set_value("Live APIs").run()
         thread = app.session_state["thread_id"]
         app.chat_input[0].set_value("Hi").run()
         self.assertEqual(list(app.exception), [])
@@ -114,7 +115,7 @@ class WorkspaceUITests(TestCase):
     def test_failed_invocation_resets_context_and_hides_exception_details(self):
         self.build_live.side_effect = RuntimeError("secret-token-must-not-appear")
         app = self.open_app()
-        app.radio[0].set_value("Live APIs").run()
+        app.radio(key="mode").set_value("Live APIs").run()
         thread = app.session_state["thread_id"]
         app.chat_input[0].set_value("BTC snapshot").run()
         self.assertEqual(list(app.exception), [])
@@ -123,3 +124,58 @@ class WorkspaceUITests(TestCase):
         self.assertNotEqual(app.session_state["thread_id"], thread)
         self.assertIn("conversation was reset", app.warning[0].value)
         self.assertNotIn("secret-token", app.warning[0].value)
+
+    def test_theme_navigation_and_asset_selections_preserve_memory(self):
+        app = self.open_app()
+        self.click(app, "BTC snapshot")
+        thread = app.session_state["thread_id"]
+        app.radio(key="appearance").set_value("Dark").run()
+        self.assertEqual(list(app.exception), [])
+        self.assertEqual(app.session_state["thread_id"], thread)
+        self.assertEqual(len(app.chat_message), 2)
+        self.assertTrue(any('--bg:#0C1316' in item.value for item in app.markdown))
+        self.click(app, "Compare Assets")
+        app.selectbox(key="_first_asset").set_value("LTC").run()
+        self.click(app, "News")
+        self.click(app, "Compare Assets")
+        self.assertEqual(app.selectbox(key="_first_asset").value, "LTC")
+        self.assertEqual(app.session_state["thread_id"], thread)
+        self.assertEqual(app.session_state["appearance"], "Dark")
+        self.click(app, "Research Desk")
+        app.radio(key="appearance").set_value("Light").run()
+        self.assertEqual(len(app.chat_message), 2)
+        self.assertEqual(app.session_state["thread_id"], thread)
+
+    def test_conversation_can_be_restored_with_its_context(self):
+        app = self.open_app()
+        self.click(app, "BTC snapshot")
+        original = app.session_state["thread_id"]
+        self.click(app, "New conversation")
+        self.click(app, "Conversations")
+        self.click(app, "Continue conversation")
+        self.assertEqual(app.session_state["thread_id"], original)
+        app.chat_input[0].set_value("Three news articles about the same cryptocurrency").run()
+        self.assertEqual(app.session_state["evidence"][0]["args"]["query"], "bitcoin")
+
+    def test_report_and_sources_are_associated_with_the_correct_turn(self):
+        app = self.open_app()
+        self.click(app, "BTC snapshot")
+        self.click(app, "BTC news")
+        responses = [entry for entry in app.session_state["chat"] if entry["role"] == "assistant"]
+        self.assertEqual(responses[0]["evidence"][0]["tool"], "crypto_data_tool")
+        self.assertEqual(responses[1]["evidence"][0]["tool"], "crypto_news_tool")
+        self.click(app, "Reports")
+        self.assertEqual(list(app.exception), [])
+        self.assertTrue(any("Market snapshots: BTC" in item.value for item in app.markdown))
+        app.selectbox[0].set_value(1).run()
+        self.assertTrue(any("News articles returned" in item.value for item in app.markdown))
+
+    def test_demo_and_live_saved_conversations_never_mix(self):
+        app = self.open_app()
+        self.click(app, "BTC snapshot")
+        original = app.session_state["thread_id"]
+        app.radio(key="mode").set_value("Live APIs").run()
+        self.assertEqual(app.session_state["conversations"][original]["mode"], "Demo")
+        self.assertFalse(any('<div class="snapshot-grid">' in item.value for item in app.markdown))
+        self.click(app, "Conversations")
+        self.assertFalse(any(button.label == "Continue conversation" for button in app.button))

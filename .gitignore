@@ -3,3 +3,10 @@
 __pycache__/
 results.txt
 .uv-cache/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/.env.local
+frontend/.npm-cache/
+frontend/*.tsbuildinfo
