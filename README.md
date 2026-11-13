@@ -4,6 +4,8 @@ A source-aware crypto research assistant with a **React + TypeScript** workspace
 
 The original Streamlit and terminal applications remain available. The migration changes the presentation and transport layers; the agent graph, providers, tools, validation and report generation are reused.
 
+The current UI incorporates the `master2` design from commit `6123ef2`, integrated with the original FastAPI/LangGraph backend. The standalone Express replacement on that remote branch is not used here. See [the master2 review](docs/master2-review.md) for integration fixes and verification limits. Local startup remains the two-service setup below.
+
 ## Start locally
 
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 20+ with npm. The frontend uses Vite 6 to support the workstation's Node 20.12 installation.

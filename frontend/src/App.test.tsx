@@ -169,6 +169,15 @@ describe('Research workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Download Markdown' }))
     await waitFor(() => expect(downloadReport).toHaveBeenCalledWith(expect.anything(), 'turn-1'))
   })
+
+  it('refreshes the displayed news topic rather than a stale search field', async () => {
+    vi.mocked(api.research).mockResolvedValue({ ...answered, latest: { ...data, articles: [{ ...data.articles[0], query: 'ethereum' }] } })
+    render(<App />); await ready()
+    fireEvent.click(screen.getByRole('button', { name: 'BTC snapshot' }))
+    await screen.findByText('BTC source-backed result')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh news' }))
+    await waitFor(() => expect(api.research).toHaveBeenLastCalledWith('session-demo', 'news', { query: 'ethereum', max_items: 3 }))
+  })
 })
 
 describe('Source formatting', () => {
