@@ -244,7 +244,7 @@ function ReplySnapshotMetrics({ snapshot: s }: { snapshot: TurnSnapshot }) {
         <div><span className="summary-metric-label">Reported low / high</span><span className="small">{s.low && s.high ? `${formatPrice(s.low)} – ${formatPrice(s.high)}` : 'Not provided'}</span></div>
       </div>
       <p className="tiny muted mt-2">Quote: {s.currency || 'Not specified'} · Low/high period: {s.period || 'Not specified'}</p>
-      <p className="tiny muted">Snapshot only. Historical price data is not available.</p>
+      <p className="tiny muted">Single snapshot from the market data provider.</p>
     </section>
   )
 }

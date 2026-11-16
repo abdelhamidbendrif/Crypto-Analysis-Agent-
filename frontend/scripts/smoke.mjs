@@ -13,6 +13,24 @@ async function call(path, body) {
 const html = await fetch(web).then(response => response.text())
 assert.match(html, /Crypto Research AI/)
 assert.equal((await call('/health')).status, 'ok')
+const demoChart = await call('/chart/BTC?days=7&demo=true')
+assert.equal(demoChart.fictional, true)
+assert.equal(demoChart.points.length, 7)
+assert.equal(demoChart.refresh_seconds, null)
+
+if (process.env.TEST_LIVE_CHART === '1') {
+  for (const symbol of ['BTC', 'ETH']) {
+    const chart = await call(`/chart/${symbol}?days=1`)
+    assert.equal(chart.fictional, false)
+    assert.equal(chart.provider, 'CoinGecko')
+    assert.equal(chart.pair, `${symbol}/USD`)
+    assert.ok(chart.points.length > 1)
+    assert.ok(chart.points.every((point, index, points) =>
+      Number.isFinite(point.price) && point.price > 0 && Number.isFinite(Date.parse(point.timestamp)) &&
+      (index === 0 || Date.parse(point.timestamp) > Date.parse(points[index - 1].timestamp))))
+    console.log(`PASS: ${chart.pair} live history, ${chart.points.length} observations, latest ${chart.points.at(-1).timestamp}.`)
+  }
+}
 const session = await call('/sessions', { mode: 'demo' })
 const root = `/sessions/${session.id}`
 const market = await call(`${root}/market`, { symbols: ['BTC'] })

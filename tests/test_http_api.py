@@ -194,3 +194,132 @@ class APITests(TestCase):
         self.assertEqual(missing.status_code, 404)
         self.store.records[session["id"]].touched -= self.store.ttl + 1
         self.assertEqual(self.client.get(f"/api/sessions/{session['id']}", headers=self.headers).status_code, 404)
+
+
+class ChartAPITests(TestCase):
+    """Tests for GET /api/chart/{symbol} and GET /api/chart/demo/{symbol}."""
+
+    def setUp(self):
+        self.store = SessionStore(graph_factory=Mock(side_effect=AssertionError("no graph")))
+        self.client = TestClient(create_app(self.store))
+        # By default block all external HTTP so tests are truly offline
+        self.guard = patch("requests.sessions.Session.request", side_effect=AssertionError("Unexpected external call"))
+        self.guard.start()
+        self.addCleanup(self.guard.stop)
+
+    # ------------------------------------------------------------------
+    # Demo fixture tests (no external HTTP)
+    # ------------------------------------------------------------------
+
+    def test_demo_chart_btc_returns_fictional_fixture(self):
+        response = self.client.get("/api/chart/BTC?demo=true")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["symbol"], "BTC")
+        self.assertEqual(data["pair"], "BTC/USD")
+        self.assertEqual(data["provider"], "Demo fixtures")
+        self.assertTrue(data["fictional"], "demo response must be labelled fictional")
+        self.assertEqual(len(data["points"]), 30)
+        # First price must be ~73500, last must be 75000
+        self.assertAlmostEqual(data["points"][0]["price"], 73500.0)
+        self.assertAlmostEqual(data["points"][-1]["price"], 75000.0)
+        # Timestamps must be ISO-8601 UTC strings
+        self.assertTrue(data["points"][0]["timestamp"].endswith("Z"))
+
+    def test_demo_chart_eth_returns_fictional_fixture(self):
+        response = self.client.get("/api/chart/ETH?demo=true")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["symbol"], "ETH")
+        self.assertTrue(data["fictional"])
+        self.assertAlmostEqual(data["points"][0]["price"], 2420.0)
+        self.assertAlmostEqual(data["points"][-1]["price"], 2500.0)
+
+    def test_dedicated_demo_route_returns_fixture_without_query_param(self):
+        response = self.client.get("/api/chart/demo/BTC")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["symbol"], "BTC")
+        self.assertTrue(data["fictional"])
+
+    def test_demo_range_uses_daily_fictional_points_and_limits_coverage(self):
+        for requested, expected in ((1, 1), (7, 7), (30, 30), (180, 30)):
+            data = self.client.get(f"/api/chart/BTC?demo=true&days={requested}").json()
+            self.assertEqual(data["granularity"], "daily")
+            self.assertEqual(data["range_days"], expected)
+            self.assertEqual(len(data["points"]), expected)
+            self.assertEqual(data["points"][-1]["timestamp"], "2026-01-01T00:00:00Z")
+            self.assertIsNone(data["refresh_seconds"])
+
+    def test_unsupported_symbol_returns_422(self):
+        response = self.client.get("/api/chart/LTC?demo=true")
+        self.assertEqual(response.status_code, 422)
+
+    def test_days_out_of_range_returns_422(self):
+        self.assertEqual(self.client.get("/api/chart/BTC?demo=true&days=0").status_code, 422)
+        self.assertEqual(self.client.get("/api/chart/BTC?demo=true&days=366").status_code, 422)
+
+    def test_symbol_is_case_insensitive(self):
+        response = self.client.get("/api/chart/btc?demo=true")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["symbol"], "BTC")
+
+    # ------------------------------------------------------------------
+    # Live-mode tests (mocked requests.get)
+    # ------------------------------------------------------------------
+
+    def _make_cg_response(self, prices):
+        """Build a mock requests.Response for CoinGecko market_chart."""
+        import json
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.raise_for_status = Mock()
+        # CoinGecko format: [[ms_timestamp, price], ...]
+        mock_resp.json.return_value = {"prices": prices}
+        return mock_resp
+
+    def test_live_chart_fetches_coingecko_and_returns_normalised_points(self):
+        # Provide two price points from CoinGecko
+        fake_prices = [
+            [1735603200000, 94000.0],  # 2025-12-31T00:00:00Z
+            [1735689600000, 95000.0],  # 2026-01-01T00:00:00Z
+        ]
+        self.guard.stop()  # allow HTTP for this test
+        with patch("requests.get", return_value=self._make_cg_response(fake_prices)) as mock_get:
+            response = self.client.get("/api/chart/BTC?days=2")
+        self.guard.start()
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["symbol"], "BTC")
+        self.assertFalse(data["fictional"])
+        self.assertEqual(len(data["points"]), 2)
+        self.assertAlmostEqual(data["points"][0]["price"], 94000.0)
+        self.assertAlmostEqual(data["points"][1]["price"], 95000.0)
+        self.assertTrue(data["points"][0]["timestamp"].endswith("Z"))
+        # Verify correct CoinGecko URL was called
+        called_url = mock_get.call_args[0][0]
+        self.assertIn("bitcoin", called_url)
+        self.assertIn("days=2", called_url)
+
+    def test_live_chart_caches_result_for_60_seconds(self):
+        fake_prices = [[1735689600000, 95000.0]]
+        self.guard.stop()
+        with patch("requests.get", return_value=self._make_cg_response(fake_prices)) as mock_get:
+            r1 = self.client.get("/api/chart/BTC?days=7")
+            r2 = self.client.get("/api/chart/BTC?days=7")
+        self.guard.start()
+        self.assertEqual(r1.status_code, 200)
+        self.assertEqual(r2.status_code, 200)
+        # Second call must have been served from cache (only one HTTP request)
+        self.assertEqual(mock_get.call_count, 1)
+
+    def test_live_chart_coingecko_error_returns_503(self):
+        self.guard.stop()
+        with patch("requests.get", side_effect=ConnectionError("timeout")):
+            response = self.client.get("/api/chart/ETH?days=7")
+        self.guard.start()
+        self.assertEqual(response.status_code, 503)
+        body = response.json()
+        self.assertIn("message", body["detail"])
+        self.assertEqual(body["detail"]["provider"], "CoinGecko")

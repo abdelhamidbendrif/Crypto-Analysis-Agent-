@@ -1,4 +1,4 @@
-import type { Mode, Session, SessionSummary, SourceData } from './types'
+import type { ChartData, Mode, Session, SessionSummary, SourceData } from './types'
 
 const base = import.meta.env.VITE_API_URL || ''
 let memoryOwner = ''
@@ -22,7 +22,10 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}, blob = false): Promise<T> {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 150_000)
+  const timeout = window.setTimeout(() => controller.abort(), path.startsWith('/chart/') ? 15_000 : 150_000)
+  const stop = () => controller.abort()
+  init.signal?.addEventListener('abort', stop, { once: true })
+  if (init.signal?.aborted) stop()
   try {
     const response = await fetch(`${base}/api${path}`, {
       ...init, signal: controller.signal,
@@ -40,6 +43,7 @@ async function request<T>(path: string, init: RequestInit = {}, blob = false): P
     throw new ApiError('Cannot reach the backend or the request timed out. Refresh the conversation before retrying; an in-flight request may still finish.')
   } finally {
     window.clearTimeout(timeout)
+    init.signal?.removeEventListener('abort', stop)
   }
 }
 
@@ -50,6 +54,8 @@ export const api = {
   preview: () => request<SourceData>('/demo/preview'),
   research: (id: string, action: string, body: object) => request<Session>(`/sessions/${id}/${action}`, { method: 'POST', body: JSON.stringify(body) }),
   report: (id: string, turn: string) => request<Blob>(`/sessions/${id}/reports/${turn}`, {}, true),
+  chart: (symbol: string, days: number, demo: boolean, signal?: AbortSignal) =>
+    request<ChartData>(`/chart/${symbol}?days=${days}&demo=${demo ? 'true' : 'false'}`, { signal }),
 }
 
 export async function downloadReport(session: Session, turn: string): Promise<void> {

@@ -6,6 +6,10 @@ The original Streamlit and terminal applications remain available. The migration
 
 The current UI incorporates the `master2` design from commit `6123ef2`, integrated with the original FastAPI/LangGraph backend. The standalone Express replacement on that remote branch is not used here. See [the master2 review](docs/master2-review.md) for integration fixes and verification limits. Local startup remains the two-service setup below.
 
+![Desktop research desk in Dark mode with a labelled Demo chart](docs/screenshots/research-desktop.png)
+
+[View the mobile chart in Light mode](docs/screenshots/chart-mobile.png).
+
 ## Start locally
 
 Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 20+ with npm. The frontend uses Vite 6 to support the workstation's Node 20.12 installation.
@@ -51,6 +55,7 @@ Keep credentials in the root `.env` on the Python server. Never put them in fron
 - Each conversation owns its checkpoint graph. Demo and Live sessions are isolated and can be restored from Conversations.
 - Theme, data mode and selected conversations survive reloads within the same browser tab. Theme is saved locally; workspace/session identifiers use session storage.
 - Report downloads return the existing source report as Markdown, with a prominent fictional-data label for Demo.
+- The **Chart** tab shows BTC/ETH history with the source pair, latest observation time, and retrieval time.
 - Failed invocations reset the affected checkpoint and return a safe error. Network timeouts can leave work running; refresh the conversation before resending a request.
 
 ## Checks
@@ -69,7 +74,7 @@ cd frontend
 npm run test:smoke
 ```
 
-`npm run preview` serves a production build on port 4173 and also proxies the local API. Unit tests mock external providers. The smoke test exercises Vite → FastAPI, conversation context, comparison, exports and CORS without consuming live quotas.
+`npm run preview` serves a production build on port 4173 and also proxies the local API. Unit tests mock external providers. The smoke test exercises Vite → FastAPI, Demo chart data, conversation context, comparison, exports and CORS. To include genuine BTC/USD and ETH/USD history, set `$env:TEST_LIVE_CHART = '1'` before running the smoke check.
 
 ## Architecture
 
@@ -77,6 +82,7 @@ npm run test:smoke
 flowchart LR
     R[React / Vite / Tailwind] --> F[FastAPI sessions and routes]
     F --> A[Existing LangGraph assistant]
+    F --> C[CoinGecko USD price history]
     A --> T[FreeCryptoAPI / NewsAPI tools]
     T --> V[Existing validation]
     V --> A
@@ -103,4 +109,8 @@ Terminal agent entry points require keys. `test_api.py` is a manual provider che
 
 Sessions are **local, single-process memory**, with a four-hour idle expiry and a 100-turn conversation limit. Restarting/reloading the backend loses them. The browser workspace identifier keeps local tab sessions separate; it is not production authentication. Use one backend worker and loopback bindings for local use. Public deployment would require authentication, persistent sessions and resource controls.
 
-The source supplies snapshots rather than historical time series, so no price chart, performance history or Recharts visualization is fabricated. A historical-data integration can add Recharts when genuine chart data exists. Missing quote currency, timezone, measurement period and percentage-change baseline remain unspecified. Headlines do not establish price causation. Tool-backed reports use source results; no-tool conversational replies still come from the model. Educational research only; not investment advice.
+Chart history uses CoinGecko's [market-chart endpoint](https://docs.coingecko.com/reference/coins-id-market-chart). Live offers 24-hour, 7-day and 30-day ranges. Demo offers 7 or 30 daily fictional observations. The backend caches successful history for five minutes and temporary failures for one minute. With an optional CoinGecko **Demo** key in `COINGECKO_API_KEY`, viewers can enable five-minute polling while the chart is visible. Manual refresh is available without a key where public access permits. This is periodic historical data retrieval. Latest provider observation and local retrieval time can differ.
+
+FreeCryptoAPI supplies the separate market snapshots. Missing quote currency, timezone, measurement period and percentage-change baseline remain unspecified. Tool-backed reports use source results. Conversational replies without a tool result come from the model. Educational research only.
+
+For the portfolio post and recording sequence, see [the launch kit](docs/launch-kit.md).

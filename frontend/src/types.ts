@@ -25,3 +25,10 @@ export interface SessionSummary {
   id: string; mode: Mode; title: string; created_at: string; updated_at: string; turn_count: number
 }
 export interface Session extends SessionSummary { turns: Turn[]; latest: SourceData; busy: boolean }
+
+export interface ChartPoint { timestamp: string; price: number }
+export interface ChartData {
+  symbol: string; pair: string; provider: string; range_days: number
+  granularity: string; points: ChartPoint[]; fetched_at: string; fictional: boolean
+  refresh_seconds: number | null
+}

@@ -16,7 +16,7 @@ describe('Structured source replies', () => {
     render(<StructuredReply turn={turn} mode="live" />)
     expect(screen.getByText('75,000.01234567')).toBeInTheDocument()
     expect(screen.getByText('74,000 – 76,000')).toBeInTheDocument()
-    expect(screen.getByText(/Snapshot only. Historical price data is not available/)).toBeInTheDocument()
+    expect(screen.getByText('Single snapshot from the market data provider.')).toBeInTheDocument()
     expect(screen.getByText(/Quote: not specified in this API response/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Curve' })).not.toBeInTheDocument()
     expect(screen.queryByRole('img', { name: /price curve/ })).not.toBeInTheDocument()

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { ArrowDownToLine, ArrowRight, ArrowUpRight, Check, CircleHelp, Columns2, FileText, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Moon, Newspaper, Paperclip, Plus, RefreshCw, Search, Send, ShieldCheck, Sun, User, X } from 'lucide-react'
+import { lazy, Suspense, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { ArrowDownToLine, ArrowRight, ArrowUpRight, Check, CircleHelp, Columns2, FileText, LayoutDashboard, LoaderCircle, Menu, MessageSquare, Moon, Newspaper, Plus, RefreshCw, Search, Send, ShieldCheck, Sun, User, X } from 'lucide-react'
 import { api, ApiError, downloadReport } from './api'
 import { BrandLogo, Comparison, EmptyState, ErrorBanner, IconButton, NewsList, ReportView, SnapshotCards, StructuredReply } from './components'
 import type { Mode, Session, SessionSummary, SourceData, View } from './types'
 
 const emptyData: SourceData = { snapshots: [], articles: [], coins: [], evidence: [] }
+const PriceChart = lazy(() => import('./chart').then(module => ({ default: module.PriceChart })))
 const navigation = [
   { id: 'desk', label: 'Research desk', icon: LayoutDashboard },
   { id: 'conversations', label: 'Conversations', icon: MessageSquare },
@@ -40,7 +41,10 @@ export default function App() {
   const [pending, setPending] = useState('')
   const [draft, setDraft] = useState('')
   const [drawer, setDrawer] = useState(false)
-  const [tab, setTab] = useState<'news' | 'compare'>('news')
+  const railTabs = ['news', 'compare', 'chart'] as const
+  const [tab, setTab] = useState<'news' | 'compare' | 'chart'>('news')
+  const [chartSymbol, setChartSymbol] = useState('BTC')
+  const [chartDays, setChartDays] = useState(7)
   const [first, setFirst] = useState('BTC')
   const [second, setSecond] = useState('ETH')
   const [topic, setTopic] = useState('bitcoin')
@@ -181,7 +185,13 @@ export default function App() {
   function handleTabKey(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
-    const next = event.key === 'Home' ? 'news' : event.key === 'End' ? 'compare' : tab === 'news' ? 'compare' : 'news'
+    const tabs = railTabs
+    const currentIndex = tabs.indexOf(tab as typeof tabs[number])
+    let next: typeof tabs[number]
+    if (event.key === 'Home') next = tabs[0]
+    else if (event.key === 'End') next = tabs[tabs.length - 1]
+    else if (event.key === 'ArrowRight') next = tabs[(currentIndex + 1) % tabs.length]
+    else next = tabs[(currentIndex - 1 + tabs.length) % tabs.length]
     setTab(next)
     document.getElementById(`${next}-tab`)?.focus()
   }
@@ -209,11 +219,12 @@ export default function App() {
         <label className="sr-only" htmlFor="question">Ask the analyst</label>
         <textarea
           id="question"
-          rows={2}
+          rows={1}
           maxLength={2000}
           value={draft}
           disabled={researchDisabled}
           onChange={event => setDraft(event.target.value)}
+          onInput={event => { const el = event.currentTarget; el.style.height = 'auto'; el.style.height = `${el.scrollHeight}px` }}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
@@ -224,16 +235,6 @@ export default function App() {
         />
         <div className="composer-toolbar">
           <div className="composer-tools">
-            <button
-              type="button"
-              className="composer-attach"
-              aria-label="Insert sample question"
-              title="Insert sample question"
-              disabled={researchDisabled}
-              onClick={() => setDraft('Compare BTC and ETH market snapshot, key trends, and recent news.')}
-            >
-              <Paperclip size={15} />
-            </button>
             <span className="composer-mode-text">
               {mode === 'demo' ? 'Demo mode · Fictional quotes' : 'Source-aware · Live APIs'}
             </span>
@@ -260,6 +261,7 @@ export default function App() {
             </div>
             <h2>How can I help your research today?</h2>
             <p>Ask for live crypto quotes, compare assets side by side, or verify headlines with attached sources.</p>
+            <p className="welcome-subtitle">Powered by LangGraph · Source-verified · BTC &amp; ETH charts</p>
           </div>
           {composerDock}
         </div>
@@ -426,6 +428,7 @@ export default function App() {
             <div className="context-tabs" role="tablist" aria-label="Research context">
               <button role="tab" id="news-tab" tabIndex={tab === 'news' ? 0 : -1} aria-selected={tab === 'news'} aria-controls="news-panel" onKeyDown={handleTabKey} onClick={() => setTab('news')}><Newspaper size={14} />News</button>
               <button role="tab" id="compare-tab" tabIndex={tab === 'compare' ? 0 : -1} aria-selected={tab === 'compare'} aria-controls="compare-panel" onKeyDown={handleTabKey} onClick={() => setTab('compare')}><Columns2 size={14} />Comparison</button>
+              <button role="tab" id="chart-tab" tabIndex={tab === 'chart' ? 0 : -1} aria-selected={tab === 'chart'} aria-controls="chart-panel" onKeyDown={handleTabKey} onClick={() => setTab('chart')}>Chart</button>
             </div>
             {tab === 'news' ? (
               <section role="tabpanel" id="news-panel" aria-labelledby="news-tab" className="context-content">
@@ -439,12 +442,33 @@ export default function App() {
                 <button className="text-button mt-3" onClick={() => go('news')}>View more news <ArrowRight size={13} /></button>
                 <div className="context-note"><CircleHelp size={13} className="shrink-0 mt-0.5" aria-hidden="true" /><span>A headline alone does not establish why a price moved.</span></div>
               </section>
-            ) : (
+            ) : tab === 'compare' ? (
               <section role="tabpanel" id="compare-panel" aria-labelledby="compare-tab" className="context-content">
                 <h2>Side by side</h2>
                 <p className="tiny muted mt-1 mb-3">Compare reported snapshots and provenance.</p>
                 {comparisonControls}
                 <Comparison snapshots={data.snapshots} compact />
+              </section>
+            ) : (
+              <section role="tabpanel" id="chart-panel" aria-labelledby="chart-tab" className="context-content">
+                <h2>Price history</h2>
+                <div className="chart-controls">
+                  <label>Asset<select aria-label="Chart asset" value={chartSymbol} onChange={event => setChartSymbol(event.target.value)}>
+                    <option value="BTC">Bitcoin</option><option value="ETH">Ethereum</option>
+                  </select></label>
+                  <label>Range<select aria-label="Chart range" value={mode === 'demo' && chartDays === 1 ? 7 : chartDays} onChange={event => setChartDays(Number(event.target.value))}>
+                    {mode === 'live' && <option value={1}>24 hours</option>}
+                    <option value={7}>7 days</option><option value={30}>30 days</option>
+                  </select></label>
+                </div>
+                <Suspense fallback={<p role="status" className="small muted">Opening chart…</p>}>
+                  <PriceChart
+                    key={`${mode}-${chartSymbol}-${chartDays}`}
+                    symbol={chartSymbol}
+                    days={mode === 'demo' && chartDays === 1 ? 7 : chartDays}
+                    demo={mode === 'demo'}
+                  />
+                </Suspense>
               </section>
             )}
           </aside>
